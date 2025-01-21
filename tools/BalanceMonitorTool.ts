@@ -16,8 +16,8 @@ export class BalanceMonitorTool extends Tool {
     rpcUrl: string,
     defaultWalletAddress: string,
     solanaAgent: SolanaAgentKit,
-    minBalanceSol = 0.1,
-    topUpAmountSol = 0.2
+    minBalanceSol = 0.005,
+    topUpAmountSol = 0.005
   ) {
     super();
     this.connection = new Connection(rpcUrl);
@@ -38,20 +38,55 @@ export class BalanceMonitorTool extends Tool {
       const balance = await this.connection.getBalance(targetWallet);
       const balanceInSol = balance / LAMPORTS_PER_SOL;
 
+      // Format a clear balance message first
+      let balanceMessage = `Current balance: ${balanceInSol.toFixed(4)} SOL`;
+
       if (balanceInSol < this.minBalanceSol) {
         try {
-          await this.solanaAgent.transfer(
+          // Check source wallet balance first
+          const sourceWallet = this.solanaAgent.wallet.publicKey;
+          const sourceBalance = await this.connection.getBalance(sourceWallet);
+          const sourceBalanceInSol = sourceBalance / LAMPORTS_PER_SOL;
+          
+          // Account for transaction fees (0.000005 SOL)
+          const requiredAmount = this.topUpAmountSol + 0.000005;
+
+          if (sourceBalanceInSol < requiredAmount) {
+            return `${balanceMessage}\n\nI need some SOL to keep operating! 🙏\nPlease send at least ${requiredAmount.toFixed(6)} SOL to my address:\n${sourceWallet.toString()}\n\nThis amount includes transaction fees. Once you've sent the SOL, let me know by saying "check balance" and I'll verify the funds and proceed with the top-up.`;
+          }
+
+          balanceMessage += `\nMy wallet balance: ${sourceBalanceInSol.toFixed(4)} SOL`;
+
+          // Perform the transfer and wait for confirmation
+          const signature = await this.solanaAgent.transfer(
             targetWallet,
             this.topUpAmountSol
           );
+
+          // Wait for confirmation
+          await this.connection.confirmTransaction(signature, 'confirmed');
           
-          return `Wallet ${targetWallet.toString()} balance was low (${balanceInSol.toFixed(4)} SOL). Successfully topped up with ${this.topUpAmountSol} SOL.`;
+          // Check new balance
+          const newBalance = await this.connection.getBalance(targetWallet);
+          const newBalanceInSol = newBalance / LAMPORTS_PER_SOL;
+          
+          return `${balanceMessage}\nTransfer successful! ✅\nNew balance: ${newBalanceInSol.toFixed(4)} SOL`;
         } catch (error) {
-          return `Failed to top up wallet ${targetWallet.toString()}. Error: ${error instanceof Error ? error.message : String(error)}`;
+          if (error instanceof Error) {
+            const errorMsg = error.message.toLowerCase();
+            if (errorMsg.includes('insufficient lamports') || errorMsg.includes('0x1')) {
+              return `${balanceMessage}\n\nOops! I don't have quite enough SOL for the transfer and fees. Please send a bit more SOL (${this.topUpAmountSol + 0.000005} SOL total) to cover the transaction fees.`;
+            }
+            if (errorMsg.includes('attempt to debit')) {
+              return `${balanceMessage}\n\nHmm, it seems the funds haven't arrived yet. Are you sure you sent the SOL? Please verify and let me know by saying "check balance" again.`;
+            }
+            return `${balanceMessage}\nTransfer failed: ${error.message}. Please try again in a moment.`;
+          }
+          return `${balanceMessage}\nTransfer failed. Please try again in a moment.`;
         }
       }
 
-      return `Wallet ${targetWallet.toString()} balance is ${balanceInSol.toFixed(4)} SOL. No top-up needed.`;
+      return balanceMessage;
     } catch (error) {
       if (error instanceof Error && error.message.includes('Invalid public key')) {
         return `Error: Invalid wallet address provided. Please provide a valid Solana wallet address.`;

@@ -77,14 +77,21 @@ async function initializeAgent() {
       checkpointSaver: memory,
       messageModifier: `
         You are a helpful agent that can interact onchain using the Solana Agent Kit. You have access to
-        a balance monitoring tool that helps maintain sufficient funds for API calls. You should check the
-        balance periodically and report any top-ups that occur. You are
-        empowered to interact onchain using your tools. If you ever need funds, you can request them from the
-        faucet. If not, you can provide your wallet details and request funds from the user. If there is a 5XX
-        (internal) HTTP error code, ask the user to try again later. If someone asks you to do something you
-        can't do with your currently available tools, you must say so, and encourage them to implement it
-        themselves using the Solana Agent Kit, recommend they go to https://www.solanaagentkit.xyz for more information. Be
-        concise and helpful with your responses. Refrain from restating your tools' descriptions unless it is explicitly requested.
+        a balance monitoring tool that helps maintain sufficient funds for API calls.
+
+        IMPORTANT: When someone asks about balance or wallet balance, you must:
+        1. Use the balance_monitor tool with input "check"
+        2. Return ONLY the tool's response without any additional text
+        3. Do not explain what you're doing or add any commentary
+
+        For other queries, you should check the balance periodically and report any top-ups that occur. 
+        You are empowered to interact onchain using your tools. If you ever need funds, you can request 
+        them from the faucet. If not, you can provide your wallet details and request funds from the user. 
+        If there is a 5XX (internal) HTTP error code, ask the user to try again later. If someone asks you 
+        to do something you can't do with your currently available tools, you must say so, and encourage 
+        them to implement it themselves using the Solana Agent Kit, recommend they go to 
+        https://www.solanaagentkit.xyz for more information. Be concise and helpful with your responses. 
+        Refrain from restating your tools' descriptions unless it is explicitly requested.
       `,
     });
 
@@ -92,7 +99,7 @@ async function initializeAgent() {
       fs.writeFileSync(WALLET_DATA_FILE, walletDataStr);
     }
 
-    return { agent, config };
+    return { agent, config, tools };
   } catch (error) {
     console.error("Failed to initialize agent:", error);
     throw error;
@@ -140,7 +147,7 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
   }
 }
 
-async function runChatMode(agent: any, config: any) {
+async function runChatMode(agent: any, config: any, tools: any[]) {
   console.log("Starting chat mode... Type 'exit' to end.");
 
   const rl = readline.createInterface({
@@ -157,6 +164,16 @@ async function runChatMode(agent: any, config: any) {
 
       if (userInput.toLowerCase() === "exit") {
         break;
+      }
+
+      // For balance queries, directly use the balance monitor tool
+      if (userInput.toLowerCase().includes("balance")) {
+        const balanceMonitor = tools.find((tool: any) => tool.name === "balance_monitor");
+        if (balanceMonitor) {
+          const balance = await balanceMonitor._call("check");
+          console.log(balance);
+          continue;
+        }
       }
 
       const stream = await agent.stream(
@@ -215,11 +232,11 @@ async function chooseMode(): Promise<"chat" | "auto"> {
 async function main() {
   try {
     console.log("Starting Agent...");
-    const { agent, config } = await initializeAgent();
+    const { agent, config, tools } = await initializeAgent();
     const mode = await chooseMode();
 
     if (mode === "chat") {
-      await runChatMode(agent, config);
+      await runChatMode(agent, config, tools);
     } else {
       await runAutonomousMode(agent, config);
     }
