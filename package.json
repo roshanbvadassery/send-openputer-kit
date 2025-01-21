@@ -1,0 +1,19 @@
+{
+  "name": "openputer-sol-agent",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.3.26",
+    "@langchain/langgraph": "^0.2.36",
+    "@langchain/openai": "^0.3.16",
+    "dotenv": "^16.4.7",
+    "node-fetch": "^3.3.1",
+    "solana-agent-kit": "^1.1.0"
+  }
+}
