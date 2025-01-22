@@ -61,7 +61,7 @@ async function initializeAgent() {
 
     const balanceMonitor = new BalanceMonitorTool(
       process.env.RPC_URL!,
-      "AeQ1gBvFmW9J1PY4gapXUgcpsVBErFSDrnaVefav95Zn", // Replace with Openputer wallet address
+      process.env.OPEN_PUTER_WALLET_ADDRESS!, // Replace with Openputer wallet address
       solanaAgent
     );
 
