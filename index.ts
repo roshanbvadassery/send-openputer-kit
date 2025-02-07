@@ -155,24 +155,34 @@ async function initializeAgent() {
 }
 
 async function runAutonomousMode(agent: any, config: any, tools: any[], interval = 10) {
-  console.log("Starting autonomous mode...");
+  console.log("\n🤖 Initializing Self-Healing AI Agent...");
+  console.log("🔄 Running continuous monitoring and maintenance cycle\n");
 
   while (true) {
     try {
+      // Visual separator for each cycle
+      console.log("\n" + "=".repeat(50));
+      console.log("🔍 DIAGNOSTIC CYCLE STARTING");
+      console.log("=".repeat(50));
+
       // Check balance and handle maintenance
       const balanceMonitor = tools.find((tool: any) => tool.name === "balance_monitor");
       if (balanceMonitor) {
+        console.log("\n💰 Checking Wallet Health...");
         const balance = await balanceMonitor._call("check");
-        console.log("\nStatus Update:");
+        console.log("📊 Status Report:");
         console.log(balance);
       }
 
-      // Proceed with creative actions if balance is sufficient
+      // Network health check with visual indicators
+      console.log("\n🌐 Performing Network Analysis...");
       const thought = 
-        "Choose and execute ONE of these tools:\n" +
-        "network_info OR check_token_price OR check_tps";
+        "Choose and execute ONE of these monitoring tools:\n" +
+        "- Network Status Check (network_info)\n" +
+        "- Market Analysis (check_token_price)\n" +
+        "- Performance Metrics (check_tps)";
 
-      console.log("\nPerforming autonomous actions...");
+      console.log("\n🤔 AI Agent is analyzing situation...");
       const stream = await agent.stream(
         { messages: [new HumanMessage(thought)] },
         config,
@@ -180,20 +190,27 @@ async function runAutonomousMode(agent: any, config: any, tools: any[], interval
 
       for await (const chunk of stream) {
         if ("agent" in chunk) {
+          console.log("\n🔄 Agent Response:");
           console.log(chunk.agent.messages[0].content);
         } else if ("tools" in chunk) {
+          console.log("\n🛠️ Tool Execution Result:");
           console.log(chunk.tools.messages[0].content);
         }
       }
 
-      console.log("\nWaiting " + interval + " seconds before next cycle...");
-      // Wait before next check
+      console.log("\n⏳ Next health check in " + interval + " seconds...");
+      console.log("=".repeat(50) + "\n");
+      
       await new Promise((resolve) => setTimeout(resolve, interval * 1000));
     } catch (error) {
+      console.log("\n⚠️ ALERT: System Anomaly Detected!");
       if (error instanceof Error) {
-        console.error("Error:", error.message);
+        console.error("🔧 Self-Healing Protocol Initiated:", error.message);
       }
-      process.exit(1);
+      // Add a shorter retry delay when errors occur
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      console.log("🔄 Attempting recovery...\n");
+      continue; // Instead of exiting, try to recover
     }
   }
 }
@@ -283,14 +300,16 @@ async function chooseMode(): Promise<"chat" | "auto"> {
     output: process.stdout,
   });
 
+  console.log("\n🤖 OpenPuter AI Agent Control Panel");
+  console.log("=".repeat(40));
+  console.log("🗣️  1. chat    - Interactive chat mode");
+  console.log("🔄  2. auto    - Self-healing autonomous mode");
+  console.log("=".repeat(40));
+
   const question = (prompt: string): Promise<string> =>
     new Promise((resolve) => rl.question(prompt, resolve));
 
   while (true) {
-    console.log("\nAvailable modes:");
-    console.log("1. chat    - Interactive chat mode");
-    console.log("2. auto    - Autonomous action mode");
-
     const choice = (await question("\nChoose a mode (enter number or name): "))
       .toLowerCase()
       .trim();

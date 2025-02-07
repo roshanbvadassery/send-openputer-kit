@@ -16,8 +16,8 @@ export class BalanceMonitorTool extends Tool {
     rpcUrl: string,
     defaultWalletAddress: string,
     solanaAgent: SolanaAgentKit,
-    minBalanceSol = 0.005,
-    topUpAmountSol = 0.005
+    minBalanceSol = 0.01,
+    topUpAmountSol = 0.01
   ) {
     super();
     this.connection = new Connection(rpcUrl);
