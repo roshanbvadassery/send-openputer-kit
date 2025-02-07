@@ -7,6 +7,7 @@ const dotenv = require("dotenv");
 const fs = require("fs");
 const readline = require("readline");
 const { BalanceMonitorTool } = require("./tools/BalanceMonitorTool");
+const { Tool } = require("@langchain/core/tools");
 
 dotenv.config();
 
@@ -36,7 +37,7 @@ const WALLET_DATA_FILE = "wallet_data.txt";
 async function initializeAgent() {
   try {
     const llm = new ChatOpenAI({
-      modelName: "openai/gpt-4o-mini",
+      modelName: "deepseek/deepseek-r1-distill-qwen-32b",
       temperature: 0.7,
       configuration: {
         baseURL: "https://api.openputer.com/v1/",
@@ -61,12 +62,56 @@ async function initializeAgent() {
 
     const balanceMonitor = new BalanceMonitorTool(
       process.env.RPC_URL!,
-      process.env.OPEN_PUTER_WALLET_ADDRESS!, // Replace with Openputer wallet address
+      process.env.OPEN_PUTER_WALLET_ADDRESS!,
       solanaAgent
     );
 
+    // Create custom tools from SolanaAgentKit methods
+    const tpsChecker = new Tool({
+      name: "check_tps",
+      description: "Get the current Transactions Per Second (TPS) of the Solana network",
+      func: async () => {
+        const tps = await solanaAgent.getTPS();
+        return `Current Solana network TPS: ${tps}`;
+      }
+    });
+
+    const tokenPriceChecker = new Tool({
+      name: "check_token_price",
+      description: "Get the price of SOL token",
+      func: async () => {
+        try {
+          // SOL mint address
+          const solMint = "So11111111111111111111111111111111111111112";
+          const price = await solanaAgent.fetchTokenPrice(solMint);
+          return `SOL price: ${price}`;
+        } catch (error) {
+          return `Could not fetch SOL price: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+    });
+
+    const networkInfo = new Tool({
+      name: "network_info",
+      description: "Get comprehensive information about the Solana network status",
+      func: async () => {
+        try {
+          const tps = await solanaAgent.getTPS();
+          return `Solana Network Status:\n- TPS: ${tps}\n- RPC Endpoint: ${process.env.RPC_URL}`;
+        } catch (error) {
+          return `Could not fetch network info: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+    });
+
     const solanaTools = createSolanaTools(solanaAgent);
-    const tools = [...solanaTools, balanceMonitor];
+    const tools = [
+      ...solanaTools, 
+      balanceMonitor,
+      tpsChecker,
+      tokenPriceChecker,
+      networkInfo
+    ];
 
     const memory = new MemorySaver();
     const config = { configurable: { thread_id: "Solana Agent Kit!" } };
@@ -77,21 +122,24 @@ async function initializeAgent() {
       checkpointSaver: memory,
       messageModifier: `
         You are a helpful agent that can interact onchain using the Solana Agent Kit. You have access to
-        a balance monitoring tool that helps maintain sufficient funds for API calls.
+        several tools:
 
-        IMPORTANT: When someone asks about balance or wallet balance, you must:
-        1. Use the balance_monitor tool with input "check"
-        2. Return ONLY the tool's response without any additional text
-        3. Do not explain what you're doing or add any commentary
+        1. balance_monitor - Checks and maintains wallet balances
+        2. network_info - Gets Solana network status
+        3. check_token_price - Gets current SOL price
+        4. check_tps - Gets network TPS
 
-        For other queries, you should check the balance periodically and report any top-ups that occur. 
-        You are empowered to interact onchain using your tools. If you ever need funds, you can request 
-        them from the faucet. If not, you can provide your wallet details and request funds from the user. 
-        If there is a 5XX (internal) HTTP error code, ask the user to try again later. If someone asks you 
-        to do something you can't do with your currently available tools, you must say so, and encourage 
-        them to implement it themselves using the Solana Agent Kit, recommend they go to 
-        https://www.solanaagentkit.xyz for more information. Be concise and helpful with your responses. 
-        Refrain from restating your tools' descriptions unless it is explicitly requested.
+        When handling requests:
+        - For balance queries: Use balance_monitor with "check" input
+        - For network status: Use network_info tool
+        - For SOL price: Use check_token_price tool
+        - For TPS: Use check_tps tool
+
+        When asked to perform autonomous actions, choose ONE of the available tools and execute it directly.
+        Return the tool's response without additional commentary.
+
+        If there is a 5XX error, ask the user to try again later.
+        Be concise and helpful with your responses.
       `,
     });
 
@@ -106,23 +154,25 @@ async function initializeAgent() {
   }
 }
 
-async function runAutonomousMode(agent: any, config: any, interval = 10) {
+async function runAutonomousMode(agent: any, config: any, tools: any[], interval = 10) {
   console.log("Starting autonomous mode...");
 
   while (true) {
     try {
-      // Check balance first
-      const balanceCheck = await agent.invoke(
-        { messages: [new HumanMessage("Check the OpenPuter wallet balance")] },
-        config,
-      );
-      console.log("Balance check:", balanceCheck);
+      // Check balance and handle maintenance
+      const balanceMonitor = tools.find((tool: any) => tool.name === "balance_monitor");
+      if (balanceMonitor) {
+        const balance = await balanceMonitor._call("check");
+        console.log("\nStatus Update:");
+        console.log(balance);
+      }
 
-      // Then proceed with regular autonomous actions
-      const thought =
-        "Be creative and do something interesting on the blockchain. " +
-        "Choose an action or set of actions and execute it that highlights your abilities.";
+      // Proceed with creative actions if balance is sufficient
+      const thought = 
+        "Choose and execute ONE of these tools:\n" +
+        "network_info OR check_token_price OR check_tps";
 
+      console.log("\nPerforming autonomous actions...");
       const stream = await agent.stream(
         { messages: [new HumanMessage(thought)] },
         config,
@@ -134,9 +184,10 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
         } else if ("tools" in chunk) {
           console.log(chunk.tools.messages[0].content);
         }
-        console.log("-------------------");
       }
 
+      console.log("\nWaiting " + interval + " seconds before next cycle...");
+      // Wait before next check
       await new Promise((resolve) => setTimeout(resolve, interval * 1000));
     } catch (error) {
       if (error instanceof Error) {
@@ -172,6 +223,32 @@ async function runChatMode(agent: any, config: any, tools: any[]) {
         if (balanceMonitor) {
           const balance = await balanceMonitor._call("check");
           console.log(balance);
+          continue;
+        }
+      }
+
+      // Handle transfer requests
+      if (userInput.toLowerCase().includes("transfer")) {
+        const balanceMonitor = tools.find((tool: any) => tool.name === "balance_monitor");
+        if (balanceMonitor) {
+          try {
+            // First check balances
+            const result = await balanceMonitor._call("check");
+            console.log(result);
+            
+            // If agent has funds, attempt the transfer
+            if (!result.includes("Agent wallet balance: 0.0000 SOL")) {
+              // Use a small amount for transfer (0.001 SOL) plus fees
+              const transferAmount = 0.001;
+              console.log(`\nAttempting to transfer ${transferAmount} SOL...`);
+              const transferResult = await balanceMonitor._call(`transfer ${transferAmount}`);
+              console.log(transferResult);
+            } else {
+              console.log("\nTransfer not possible: Agent wallet has no funds to transfer.");
+            }
+          } catch (error) {
+            console.error("\nTransfer failed:", error instanceof Error ? error.message : String(error));
+          }
           continue;
         }
       }
@@ -238,7 +315,7 @@ async function main() {
     if (mode === "chat") {
       await runChatMode(agent, config, tools);
     } else {
-      await runAutonomousMode(agent, config);
+      await runAutonomousMode(agent, config, tools);
     }
   } catch (error) {
     if (error instanceof Error) {

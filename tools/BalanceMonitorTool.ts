@@ -29,6 +29,32 @@ export class BalanceMonitorTool extends Tool {
 
   async _call(input: string): Promise<string> {
     try {
+      // Handle transfer command
+      if (input.startsWith('transfer ')) {
+        const amount = parseFloat(input.split(' ')[1]);
+        if (isNaN(amount)) {
+          return 'Invalid transfer amount specified.';
+        }
+        
+        // Perform the transfer
+        const signature = await this.solanaAgent.transfer(
+          this.defaultWallet,
+          amount
+        );
+
+        // Wait for confirmation
+        await this.connection.confirmTransaction(signature, 'confirmed');
+        
+        // Check new balances
+        const targetBalance = await this.connection.getBalance(this.defaultWallet);
+        const targetBalanceInSol = targetBalance / LAMPORTS_PER_SOL;
+        const agentWallet = this.solanaAgent.wallet.publicKey;
+        const agentBalance = await this.connection.getBalance(agentWallet);
+        const agentBalanceInSol = agentBalance / LAMPORTS_PER_SOL;
+        
+        return `Transfer successful! ✅\nNew monitored wallet balance: ${targetBalanceInSol.toFixed(4)} SOL\nNew agent wallet balance: ${agentBalanceInSol.toFixed(4)} SOL`;
+      }
+
       // If input is 'check' or empty, use default wallet
       // Otherwise, try to use input as wallet address
       const targetWallet = input && input !== 'check' 
@@ -39,7 +65,15 @@ export class BalanceMonitorTool extends Tool {
       const balanceInSol = balance / LAMPORTS_PER_SOL;
 
       // Format a clear balance message first
-      let balanceMessage = `Current balance: ${balanceInSol.toFixed(4)} SOL`;
+      let balanceMessage = targetWallet.equals(this.defaultWallet)
+        ? `Monitored wallet balance: ${balanceInSol.toFixed(4)} SOL (${targetWallet.toString()})`
+        : `Wallet balance for ${targetWallet.toString()}: ${balanceInSol.toFixed(4)} SOL`;
+
+      // Also show agent's wallet balance for context
+      const agentWallet = this.solanaAgent.wallet.publicKey;
+      const agentBalance = await this.connection.getBalance(agentWallet);
+      const agentBalanceInSol = agentBalance / LAMPORTS_PER_SOL;
+      balanceMessage += `\nAgent wallet balance: ${agentBalanceInSol.toFixed(4)} SOL (${agentWallet.toString()})`;
 
       if (balanceInSol < this.minBalanceSol) {
         try {
